@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=KorZip   
+Exec=korzip --gui                                                          
+Type=Application
+Comment=korzip을 실행합니다.
+Icon=application-x-archive
+Categories=Utility;Archiving;
+
