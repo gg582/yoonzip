@@ -47,10 +47,6 @@ GUI 모드를 더 편리하게 실행하기 위해 데스크톱 바로가기 파
 
 - 작성한 파일을 korzip.desktop과 같은 이름으로 저장합니다.
 - 저장한 .desktop 파일을 ~/.local/share/applications/ 또는 /usr/share/applications/ 디렉토리로 복사합니다.
-- 터미널에서 다음 명령어를 실행하여 데스크톱 아이콘 캐시를 업데이트합니다.
-- sudo update-desktop-database
-- 또는
-- update-desktop-database ~/.local/share/applications/
 
 이제 애플리케이션 메뉴 등에서 KorZip 아이콘을 통해 GUI 모드를 실행하면 초기 선택 창이 나타납니다.
 ## {!} 주의사항
