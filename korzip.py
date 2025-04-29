@@ -1,299 +1,250 @@
-#!/usr/bin/python3
-import sys
-import zipfile
-import os
 import gi
-from importlib import reload
-from multiprocessing import Pool
-from datetime import datetime
+import os
+import traceback
+from multiprocessing import Process, Queue
+import pyzipper
+import zipfile
 
-reload(sys)
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk
+from gi.repository import Gtk, GLib
 
-def _unzip_single(file_path, extract_path):
-    """내부 함수: 단일 ZIP 파일 압축 해제 시도"""
+def try_open_zip(zip_path, password):
     try:
-        with zipfile.ZipFile(file_path, 'r') as zf:
-            for member in zf.infolist():
-                try:
-                    member.filename = member.filename.encode('cp437').decode('euc-kr', 'ignore')
-                    zf.extract(member, extract_path)
-                except UnicodeDecodeError:
-                    try:
-                        member.filename = member.filename.encode('cp437').decode('utf-8', 'ignore')
-                        zf.extract(member, extract_path)
-                    except UnicodeDecodeError:
-                        print(f"경고: '{member.filename}' 파일명 디코딩 실패. 건너뜁니다.")
-                except Exception as e:
-                    print(f"경고: '{member.filename}' 압축 해제 중 오류 발생: {e}")
-    except zipfile.BadZipFile:
-        print(f"오류: '{file_path}'은 올바른 ZIP 파일이 아닙니다.")
-    except FileNotFoundError:
-        print(f"오류: '{file_path}' 파일을 찾을 수 없습니다.")
-    except Exception as e:
-        print(f"오류: '{file_path}' 압축 해제 중 예기치 않은 오류 발생: {e}")
+        zf = zipfile.ZipFile(zip_path)
+        if password:
+            zf.setpassword(password.encode("utf-8"))
+        zf.testzip()
+        return zf, 'zipfile'
+    except:
+        try:
+            zf = pyzipper.AESZipFile(zip_path)
+            if password:
+                zf.pwd = password.encode("utf-8")
+            zf.testzip()
+            return zf, 'pyzipper'
+        except:
+            raise
 
-def unzip_multiple(file_paths, extract_path, use_multiprocessing=True):
-    """여러 ZIP 파일 압축 해제"""
-    if use_multiprocessing and len(file_paths) > 1:
-        with Pool() as pool:
-            tasks = [(file, extract_path) for file in file_paths]
-            pool.starmap(_unzip_single, tasks)
-    else:
-        for file_path in file_paths:
-            _unzip_single(file_path, extract_path)
-
-def _zip_single(file_paths, zip_file_path):
-    """내부 함수: 여러 파일을 하나의 ZIP 파일로 압축"""
+def extract_zip(zip_path, dest_dir, password, queue):
     try:
-        with zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for file_path in file_paths:
-                base_name = os.path.basename(file_path)
-                zf.write(file_path, base_name)
-        print(f"'{zip_file_path}'으로 압축 완료.")
-    except FileNotFoundError:
-        print(f"오류: '{file_path}' 파일을 찾을 수 없습니다.")
-    except Exception as e:
-        print(f"오류: 압축 중 예기치 않은 오류 발생: {e}")
+        zf, typ = try_open_zip(zip_path, password)
+        for info in zf.infolist():
+            filename = info.filename
+            try:
+                filename = filename.encode("cp437").decode("euc-kr")
+            except:
+                pass
+            target = os.path.join(dest_dir, filename)
+            if info.is_dir() or filename.endswith('/'):
+                os.makedirs(target, exist_ok=True)
+                queue.put(f"[DIR] {filename}")
+            else:
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                with zf.open(info) as src, open(target, "wb") as dst:
+                    dst.write(src.read())
+                queue.put(f"[EXTRACTED] {filename}")
+        queue.put(":::DONE:::")
+    except Exception:
+        queue.put("[ERROR]\n" + traceback.format_exc())
+        queue.put(":::DONE:::")
 
-class UnzipWindow(Gtk.Window):
+def compress_zip(file_list, zip_path, password, queue):
+    try:
+        with pyzipper.AESZipFile(zip_path, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+            if password:
+                zf.setpassword(password.encode("utf-8"))
+            for f in file_list:
+                arcname = os.path.basename(f)
+                zf.write(f, arcname)
+                queue.put(f"[ADDED] {arcname}")
+        queue.put(":::DONE:::")
+    except Exception:
+        queue.put("[ERROR]\n" + traceback.format_exc())
+        queue.put(":::DONE:::")
+
+class ZipApp(Gtk.Window):
     def __init__(self):
-        Gtk.Window.__init__(self, title="ZIP 압축 해제")
-        self.set_border_width(10)
-        self.set_default_size(400, 150)
-
-        grid = Gtk.Grid(column_spacing=5, row_spacing=5)
+        Gtk.Window.__init__(self, title="ZIP 압축/해제")
+        self.set_default_size(700, 500)
+        grid = Gtk.Grid(column_spacing=10, row_spacing=20)
         self.add(grid)
 
-        # 대상 폴더 선택 버튼
-        folder_label = Gtk.Label(label="압축 해제할 폴더:")
-        grid.attach(folder_label, 0, 0, 1, 1)
+        self.mode_combo = Gtk.ComboBoxText()
+        self.mode_combo.append_text("압축 해제")
+        self.mode_combo.append_text("압축")
+        self.mode_combo.set_active(0)
+        grid.attach(Gtk.Label(label="모드:"), 0, 0, 1, 1)
+        grid.attach(self.mode_combo, 1, 0, 2, 1)
+        self.mode_combo.connect("changed", self.on_mode_changed)
 
-        self.folder_entry = Gtk.Entry()
-        self.folder_entry.set_editable(False)
-        grid.attach(self.folder_entry, 1, 0, 2, 1)
+        # 압축 해제 관련
+        self.unzip_widgets = Gtk.Grid(column_spacing=10, row_spacing=10)
+        grid.attach(self.unzip_widgets, 0, 1, 3, 1)
 
-        folder_button = Gtk.Button(label="선택")
-        folder_button.connect("clicked", self.on_folder_clicked)
-        grid.attach(folder_button, 3, 0, 1, 1)
+        self.zip_select_btn = Gtk.Button(label="ZIP 파일 선택")
+        self.zip_select_btn.connect("clicked", self.on_zip_select_clicked)
+        self.unzip_widgets.attach(self.zip_select_btn, 0, 0, 1, 1)
+        self.zip_selected_label = Gtk.Label(label="(선택 안됨)")
+        self.unzip_widgets.attach(self.zip_selected_label, 1, 0, 2, 1)
 
-        # ZIP 파일 선택 버튼
-        file_label = Gtk.Label(label="ZIP 파일:")
-        grid.attach(file_label, 0, 1, 1, 1)
+        self.folder_select_btn = Gtk.Button(label="압축 해제 폴더 선택")
+        self.folder_select_btn.connect("clicked", self.on_folder_select_clicked)
+        self.unzip_widgets.attach(self.folder_select_btn, 0, 1, 1, 1)
+        self.folder_selected_label = Gtk.Label(label="(선택 안됨)")
+        self.unzip_widgets.attach(self.folder_selected_label, 1, 1, 2, 1)
 
-        self.file_list_store = Gtk.ListStore(str)
-        file_tree_view = Gtk.TreeView(model=self.file_list_store)
-        file_renderer = Gtk.CellRendererText()
-        file_column = Gtk.TreeViewColumn("선택된 ZIP 파일", file_renderer, text=0)
-        file_tree_view.append_column(file_column)
-        grid.attach(file_tree_view, 1, 1, 2, 1)
+        self.pw_entry_unzip = Gtk.Entry()
+        self.pw_entry_unzip.set_visibility(False)
+        self.pw_entry_unzip.set_placeholder_text("비밀번호 (선택 사항)")
+        self.unzip_widgets.attach(self.pw_entry_unzip, 0, 2, 3, 1)
 
-        file_button = Gtk.Button(label="추가")
-        file_button.connect("clicked", self.on_file_clicked)
-        grid.attach(file_button, 3, 1, 1, 1)
+        # 압축 관련
+        self.zip_widgets = Gtk.Grid(column_spacing=10, row_spacing=10)
+        grid.attach(self.zip_widgets, 0, 1, 3, 1)
+        self.zip_widgets.hide()
 
-        # 압축 해제 버튼
-        unzip_button = Gtk.Button(label="압축 해제")
-        unzip_button.connect("clicked", self.on_unzip_start)
-        grid.attach(unzip_button, 0, 2, 4, 1)
+        self.compress_files = []
+        self.compress_btn = Gtk.Button(label="압축할 파일 선택")
+        self.compress_btn.connect("clicked", self.on_file_select_clicked)
+        self.zip_widgets.attach(self.compress_btn, 0, 0, 1, 1)
+        self.compress_label = Gtk.Label(label="(선택 안됨)")
+        self.zip_widgets.attach(self.compress_label, 1, 0, 2, 1)
 
-        self.extract_folder = None
-        self.zip_files_to_unzip = []
+        self.save_btn = Gtk.Button(label="ZIP 저장 위치 선택")
+        self.save_btn.connect("clicked", self.on_save_select_clicked)
+        self.zip_widgets.attach(self.save_btn, 0, 1, 1, 1)
+        self.save_label = Gtk.Label(label="(선택 안됨)")
+        self.zip_widgets.attach(self.save_label, 1, 1, 2, 1)
 
-    def on_folder_clicked(self, widget):
-        dialog = Gtk.FileChooserDialog(
-            "압축을 풀 폴더 선택", self, Gtk.FileChooserAction.SELECT_FOLDER,
-            (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, "선택", Gtk.ResponseType.OK)
-        )
-        dialog.set_default_size(800, 400)
-        response = dialog.run()
-        if response == Gtk.ResponseType.OK:
-            self.extract_folder = dialog.get_filename()
-            self.folder_entry.set_text(self.extract_folder)
-        dialog.destroy()
+        self.pw_entry_zip = Gtk.Entry()
+        self.pw_entry_zip.set_visibility(False)
+        self.pw_entry_zip.set_placeholder_text("비밀번호 (선택 사항)")
+        self.zip_widgets.attach(self.pw_entry_zip, 0, 2, 3, 1)
 
-    def on_file_clicked(self, widget):
-        dialog = Gtk.FileChooserDialog(
-            "ZIP 파일 선택", self, Gtk.FileChooserAction.OPEN,
-            (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
-        )
-        dialog.set_default_size(800, 400)
-        file_filter = Gtk.FileFilter()
-        file_filter.set_name("ZIP 파일")
-        file_filter.add_mime_type("application/zip")
-        dialog.add_filter(file_filter)
+        btn = Gtk.Button(label="실행")
+        btn.connect("clicked", self.run)
+        grid.attach(btn, 0, 2, 3, 1)
+
+        self.log = Gtk.TextView()
+        self.log.set_editable(False)
+        self.log_buf = self.log.get_buffer()
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_vexpand(True)
+        scroll.add(self.log)
+        grid.attach(scroll, 0, 3, 3, 1)
+
+        self.q = None
+        self.p = None
+
+        self.selected_zip_paths = []
+        self.selected_extract_folder = None
+        self.selected_compress_files = []
+        self.selected_save_path = None
+
+    def on_zip_select_clicked(self, button):
+        dialog = Gtk.FileChooserDialog("ZIP 파일 선택", self, Gtk.FileChooserAction.OPEN,
+                                       (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+                                        Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
         dialog.set_select_multiple(True)
-        response = dialog.run()
-        if response == Gtk.ResponseType.OK:
-            selected_files = dialog.get_filenames()
-            for file in selected_files:
-                if file not in self.zip_files_to_unzip:
-                    self.zip_files_to_unzip.append(file)
-                    self.file_list_store.append([file])
+        zip_filter = Gtk.FileFilter()
+        zip_filter.add_mime_type("application/zip")
+        dialog.add_filter(zip_filter)
+
+        if dialog.run() == Gtk.ResponseType.OK:
+            self.selected_zip_paths = dialog.get_filenames()
+            names = [os.path.basename(p) for p in self.selected_zip_paths]
+            self.zip_selected_label.set_text(", ".join(names))
         dialog.destroy()
 
-    def on_unzip_start(self, widget):
-        if not self.extract_folder:
-            self.show_message("오류", "압축을 풀 폴더를 먼저 선택해주세요.")
-            return
-        if not self.zip_files_to_unzip:
-            self.show_message("오류", "압축 해제할 ZIP 파일을 선택해주세요.")
-            return
-
-        unzip_multiple(self.zip_files_to_unzip, self.extract_folder)
-        self.show_message("완료", f"{len(self.zip_files_to_unzip)}개의 ZIP 파일 압축 해제를 완료했습니다.\n위치: {self.extract_folder}")
-        self.file_list_store.clear()
-        self.zip_files_to_unzip = []
-        self.folder_entry.set_text("")
-        self.extract_folder = None
-
-    def show_message(self, title, message):
-        dialog = Gtk.MessageDialog(
-            self, 0, Gtk.MessageType.INFO, Gtk.ButtonsType.OK, message
-        )
-        dialog.set_title(title)
-        dialog.run()
+    def on_folder_select_clicked(self, button):
+        dialog = Gtk.FileChooserDialog("압축 해제 폴더 선택", self, Gtk.FileChooserAction.SELECT_FOLDER,
+                                       (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+                                        Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
+        if dialog.run() == Gtk.ResponseType.OK:
+            self.selected_extract_folder = dialog.get_filename()
+            self.folder_selected_label.set_text(self.selected_extract_folder)
         dialog.destroy()
 
-class ZipWindow(Gtk.Window):
-    def __init__(self):
-        Gtk.Window.__init__(self, title="ZIP 압축")
-        self.set_border_width(10)
-        self.set_default_size(400, 200)
-
-        grid = Gtk.Grid(column_spacing=5, row_spacing=5)
-        self.add(grid)
-
-        # 압축할 파일/폴더 선택
-        file_label = Gtk.Label(label="압축할 파일/폴더:")
-        grid.attach(file_label, 0, 0, 1, 1)
-        self.file_list_store = Gtk.ListStore(str)
-        file_tree_view = Gtk.TreeView(model=self.file_list_store)
-        file_renderer = Gtk.CellRendererText()
-        file_column = Gtk.TreeViewColumn("선택된 항목", file_renderer, text=0)
-        file_tree_view.append_column(file_column)
-        grid.attach(file_tree_view, 1, 0, 2, 1)
-        add_button = Gtk.Button(label="추가")
-        add_button.connect("clicked", self.on_add_clicked)
-        grid.attach(add_button, 3, 0, 1, 1)
-
-        # ZIP 파일 저장 위치 선택
-        output_label = Gtk.Label(label="ZIP 파일 저장 위치:")
-        grid.attach(output_label, 0, 1, 1, 1)
-        self.output_entry = Gtk.Entry()
-        self.output_entry.set_editable(False)
-        grid.attach(self.output_entry, 1, 1, 2, 1)
-        output_button = Gtk.Button(label="선택")
-        output_button.connect("clicked", self.on_output_clicked)
-        grid.attach(output_button, 3, 1, 1, 1)
-
-        # 압축 시작 버튼
-        zip_button = Gtk.Button(label="압축 시작")
-        zip_button.connect("clicked", self.on_zip_start)
-        grid.attach(zip_button, 0, 2, 4, 1)
-
-        self.files_to_zip = []
-        self.output_zip_file = None
-
-    def on_add_clicked(self, widget):
-        dialog = Gtk.FileChooserDialog(
-            "압축할 파일 또는 폴더 선택", self, Gtk.FileChooserAction.OPEN,
-            (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
-        )
-        dialog.set_default_size(800, 400)
+    def on_file_select_clicked(self, button):
+        dialog = Gtk.FileChooserDialog("파일 선택", self, Gtk.FileChooserAction.OPEN,
+                                       (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+                                        Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
         dialog.set_select_multiple(True)
-        response = dialog.run()
-        if response == Gtk.ResponseType.OK:
-            selected_items = dialog.get_filenames()
-            for item in selected_items:
-                if item not in self.files_to_zip:
-                    self.files_to_zip.append(item)
-                    self.file_list_store.append([item])
+        if dialog.run() == Gtk.ResponseType.OK:
+            self.selected_compress_files = dialog.get_filenames()
+            names = [os.path.basename(f) for f in self.selected_compress_files]
+            self.compress_label.set_text(", ".join(names))
         dialog.destroy()
 
-    def on_output_clicked(self, widget):
-        dialog = Gtk.FileChooserDialog(
-            "ZIP 파일 저장 위치 선택", self, Gtk.FileChooserAction.SAVE,
-            (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, "저장", Gtk.ResponseType.OK)
-        )
-        dialog.set_default_size(800, 400)
-        dialog.set_current_name(f"archive_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip")
-        response = dialog.run()
-        if response == Gtk.ResponseType.OK:
-            self.output_zip_file = dialog.get_filename()
-            self.output_entry.set_text(self.output_zip_file)
+    def on_save_select_clicked(self, button):
+        dialog = Gtk.FileChooserDialog("ZIP 저장 위치", self, Gtk.FileChooserAction.SAVE,
+                                       (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+                                        Gtk.STOCK_SAVE, Gtk.ResponseType.OK))
+        dialog.set_current_name("archive.zip")
+        if dialog.run() == Gtk.ResponseType.OK:
+            self.selected_save_path = dialog.get_filename()
+            self.save_label.set_text(self.selected_save_path)
         dialog.destroy()
 
-    def on_zip_start(self, widget):
-        if not self.output_zip_file:
-            self.show_message("오류", "ZIP 파일을 저장할 위치를 선택해주세요.")
-            return
-        if not self.files_to_zip:
-            self.show_message("오류", "압축할 파일 또는 폴더를 선택해주세요.")
-            return
-
-        _zip_single(self.files_to_zip, self.output_zip_file)
-        self.show_message("완료", f"'{self.output_zip_file}'로 압축을 완료했습니다.")
-        self.file_list_store.clear()
-        self.files_to_zip = []
-        self.output_entry.set_text("")
-        self.output_zip_file = None
-
-    def show_message(self, title, message):
-        dialog = Gtk.MessageDialog(
-            self, 0, Gtk.MessageType.INFO, Gtk.ButtonsType.OK, message
-        )
-        dialog.set_title(title)
-        dialog.run()
-        dialog.destroy()
-
-class MainWindow(Gtk.Window):
-    def __init__(self):
-        Gtk.Window.__init__(self, title="KorZip")
-        self.set_border_width(10)
-        self.set_default_size(200, 100)
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        self.add(vbox)
-
-        unzip_button = Gtk.Button(label="압축 해제")
-        unzip_button.connect("clicked", self.on_unzip_button_clicked)
-        vbox.pack_start(unzip_button, True, True, 0)
-
-        zip_button = Gtk.Button(label="압축")
-        zip_button.connect("clicked", self.on_zip_button_clicked)
-        vbox.pack_start(zip_button, True, True, 0)
-
-        self.unzip_win = None
-        self.zip_win = None
-
-    def on_unzip_button_clicked(self, widget):
-        if not self.unzip_win:
-            self.unzip_win = UnzipWindow()
-            self.unzip_win.connect("destroy", lambda w: setattr(self, 'unzip_win', None))
-            self.unzip_win.show_all()
+    def on_mode_changed(self, combo):
+        if combo.get_active_text() == "압축 해제":
+            self.unzip_widgets.show_all()
+            self.zip_widgets.hide()
         else:
-            self.unzip_win.present()
+            self.zip_widgets.show_all()
+            self.unzip_widgets.hide()
 
-    def on_zip_button_clicked(self, widget):
-        if not self.zip_win:
-            self.zip_win = ZipWindow()
-            self.zip_win.connect("destroy", lambda w: setattr(self, 'zip_win', None))
-            self.zip_win.show_all()
+    def run(self, widget):
+        self.q = Queue()
+        mode = self.mode_combo.get_active_text()
+
+        if mode == "압축 해제":
+            if not self.selected_zip_paths:
+                self.log_write("[!] ZIP 파일 선택 필요")
+                return
+            if not self.selected_extract_folder:
+                self.log_write("[!] 압축 해제 폴더 선택 필요")
+                return
+            pw = self.pw_entry_unzip.get_text()
+            for zip_path in self.selected_zip_paths:
+                p = Process(target=extract_zip, args=(zip_path, self.selected_extract_folder, pw, self.q))
+                p.start()
+                GLib.timeout_add(100, self.poll_q, p)
+
         else:
-            self.zip_win.present()
+            if not self.selected_compress_files:
+                self.log_write("[!] 압축할 파일 선택 필요")
+                return
+            if not self.selected_save_path:
+                self.log_write("[!] 저장 경로 선택 필요")
+                return
+            pw = self.pw_entry_zip.get_text()
+            self.p = Process(target=compress_zip, args=(self.selected_compress_files, self.selected_save_path, pw, self.q))
+            self.p.start()
+            GLib.timeout_add(100, self.poll_q, self.p)
+
+    def poll_q(self, process):
+        if self.q is None:
+            return False
+        while not self.q.empty():
+            m = self.q.get()
+            if m == ":::DONE:::":
+                self.log_write("[*] 완료")
+                process.join()
+                return False
+            self.log_write(m)
+        return True
+
+    def log_write(self, text):
+        end = self.log_buf.get_end_iter()
+        self.log_buf.insert(end, text + "\n")
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "--gui":
-        main_win = MainWindow()
-        main_win.connect("destroy", Gtk.main_quit)
-        main_win.show_all()
-        Gtk.main()
-    elif len(sys.argv) >= 3:
-        zip_files = sys.argv[1:-1]
-        extract_path = sys.argv[-1]
-        unzip_multiple(zip_files, extract_path)
-    else:
-        print("사용법:")
-        print("  python script.py --gui             # GUI 모드 실행")
-        print("  python script.py <zip_파일1> [<zip_파일2> ...] <대상_폴더> # CLI 모드로 압축 해제")
+    import multiprocessing
+    multiprocessing.set_start_method("spawn")
+    app = ZipApp()
+    app.connect("destroy", Gtk.main_quit)
+    app.show_all()
+    app.zip_widgets.hide()
+    Gtk.main()
+
