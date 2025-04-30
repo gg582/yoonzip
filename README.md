@@ -33,6 +33,10 @@ sudo apt-get install python3-gi gir1.2-gtk-3.0
 ```
 sudo dnf install python3-gobject gtk3
 ```
+#### PIP 필수 의존성
+```
+pip3 install pyzipper
+```
 
 ```
 sudo bash ./install.sh
