@@ -204,10 +204,13 @@ class ZipApp(Gtk.Window):
         zip_filter.add_mime_type("application/zip")
         dialog.add_filter(zip_filter)
 
-        if dialog.run() == Gtk.ResponseType.OK:
+        result = dialog.run() 
+        if result == Gtk.ResponseType.OK:
             self.selected_zip_paths = dialog.get_filenames()
             names = [os.path.basename(p) for p in self.selected_zip_paths]
             self.zip_selected_label.set_text(", ".join(names))
+        elif result == Gtk.ResponseType.CANCEL:
+            dialog.destroy()
         dialog.destroy()
 
     def on_folder_select_clicked(self, button):
