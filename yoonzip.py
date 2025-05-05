@@ -9,6 +9,9 @@ import zipfile
 
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk, GLib
+compress_file_list = []
+decompress_file_list = []
+
 
 def try_open_zip(zip_path, password):
     try:
@@ -28,8 +31,15 @@ def try_open_zip(zip_path, password):
             raise
 
 def extract_zip(zip_path, dest_dir, password, queue):
+    if zip_path in decompress_file_list:
+        queue.put("Zip file is Already in a Queue")
+        return
+    else:
+        decompress_file_list.append(zip_path)
     try:
         zf, typ = try_open_zip(zip_path, password)
+        queue.put("Zip file Opened")
+        queue.put("Reading Zip...")
         for info in zf.infolist():
             filename = info.filename
             try:
@@ -44,20 +54,30 @@ def extract_zip(zip_path, dest_dir, password, queue):
                 os.makedirs(os.path.dirname(target), exist_ok=True)
                 with zf.open(info) as src, open(target, "wb") as dst:
                     dst.write(src.read())
-                queue.put(f"[EXTRACTED] {filename}")
+        decompress_file_list.remove(zip_path)
         queue.put(":::DONE:::")
-    except Exception:
+    except:
+        decompress_file_list.remove(zip_path)
         queue.put("[ERROR]\n" + traceback.format_exc())
         queue.put(":::DONE:::")
 
 def compress_zip(file_list, zip_path, password, queue):
+    if zip_path in compress_file_list:
+        queue.put("[ERROR] File Path Already exists")
+        return
+    else:
+        compress_file_list.append(zip_path)
+        for i in compress_file_list:
+            print(i)
     try:
+        queue.put("Started Compression...")
         with zipfile.ZipFile(zip_path, 'w', compression=pyzipper.ZIP_DEFLATED) as zf:
             if len(password) != 0:
                 try:
                     zf.setpassword(password.encode("utf-8"))
                 except:
                     zf.setpassword(password.encode("cp437").decode("euc-kr"))
+                queue.put("ZIP Password Setup Done.")
             for f in file_list:
                 if os.path.isdir(f):
                     for root, dirs, files in os.walk(f):
@@ -69,6 +89,7 @@ def compress_zip(file_list, zip_path, password, queue):
                     arcname = os.path.basename(f)
                     zf.write(f, arcname)
         queue.put(":::DONE:::")
+        compress_file_list.remove(zip_path)
         return
     except:
         try:
@@ -88,8 +109,10 @@ def compress_zip(file_list, zip_path, password, queue):
                     else:
                         arcname = os.path.basename(f)
                         zf.write(f, arcname)
+            compress_file_list.remove(zip_path)
             queue.put(":::DONE:::")
-        except Exception:
+        except:
+            compress_file_list.remove(zip_path)
             queue.put("[ERROR]\n" + traceback.format_exc())
             queue.put(":::DONE:::")
 
