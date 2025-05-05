@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 import gi
+import sys
 import os
 import traceback
 from multiprocessing import Process, Queue
@@ -244,8 +245,28 @@ if __name__ == "__main__":
     import multiprocessing
     multiprocessing.set_start_method("spawn")
     app = ZipApp()
+
     app.connect("destroy", Gtk.main_quit)
     app.show_all()
-    app.zip_widgets.hide()
+    if app.mode_combo.get_active_text() != "압축":
+        app.zip_widgets.hide()
+    else:
+        app.unzip_widgets.hide()
+
+    if len(sys.argv) > 1:
+        zip_files = [p for p in sys.argv[1:] if p.lower().endswith(".zip")]
+        other_files = [p for p in sys.argv[1:] if not p.lower().endswith(".zip")]
+
+        if zip_files and not other_files:
+            app.mode_combo.set_active(0)  
+            app.selected_zip_paths = zip_files
+            names = [os.path.basename(p) for p in zip_files]
+            app.zip_selected_label.set_text(", ".join(names))
+        elif other_files:
+            app.mode_combo.set_active(1) 
+            app.selected_compress_files = other_files
+            names = [os.path.basename(p) for p in other_files]
+            app.compress_label.set_text(", ".join(names))
+
     Gtk.main()
 

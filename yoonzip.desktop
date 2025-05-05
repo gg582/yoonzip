@@ -1,8 +1,9 @@
 [Desktop Entry]
 Name=윤Zip(YoonZip)
-Exec=yoonzip
+Exec=yoonzip %U
 Type=Application
 Comment=윤Zip을 실행합니다.
 Icon=application-x-archive
 Categories=Utility;Archiving;
+MimeType=application/zip;
 
