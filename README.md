@@ -23,7 +23,7 @@
 
 ## 설치 및 실행
 
-### 필수 의존성 설치 (GUI 모드): GUI 모드를 사용하려면 GTK+ 3 라이브러리가 설치되어 있어야 합니다.
+### 필수 의존성 설치
 
 #### Debian/Ubuntu 기반:
 ```bash
@@ -32,11 +32,11 @@ sudo apt-get install python3-gi gir1.2-gtk-3.0
 ```
 
 #### Fedora/CentOS/RHEL 기반:
-```
+```bash
 sudo dnf install python3-gobject gtk3
 ```
 #### PIP 필수 의존성
-```
+```bash
 pip3 install pyzipper
 ```
 
@@ -44,7 +44,13 @@ pip3 install pyzipper
 sudo bash ./install.sh
 ```
 로 빠르게 설치합니다.
-다른 운영체제의 경우 해당 패키지 관리자를 사용하여 GTK+ 3 관련 패키지를 설치하세요.
+*다른 운영체제의 경우 해당 패키지 관리자를 사용하여 GTK+ 3 관련 패키지를 설치하세요.*
+
+### Nuitka 바이너리로 설치 교체(선택사항)
+```bash
+sudo bash ./replace_script_to_bin.py
+```
+이것을 이용하면 유지보수는 까다로워지지만 보다 빠른 동작을 보장합니다.
 
 - 실행: 리눅스 메뉴에서 프로그램을 실행하세요.
 
