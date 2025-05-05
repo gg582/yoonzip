@@ -65,11 +65,9 @@ def compress_zip(file_list, zip_path, password, queue):
                             full_path = os.path.join(root, file)
                             rel_path  = os.path.relpath(full_path, f)
                             zf.write(full_path, arcname=os.path.join(os.path.basename(f), rel_path))
-                            queue.put(f"[ADDED] {full_path}")
                 else:
                     arcname = os.path.basename(f)
                     zf.write(f, arcname)
-                    queue.put(f"[ADDED] {arcname}")
         queue.put(":::DONE:::")
         return
     except:
@@ -87,11 +85,9 @@ def compress_zip(file_list, zip_path, password, queue):
                                 full_path = os.path.join(root, file)
                                 rel_path  = os.path.relpath(full_path, f)
                                 zf.write(full_path, arcname=os.path.join(os.path.basename(f), rel_path))
-                                queue.put(f"[ADDED] {full_path}")
                     else:
                         arcname = os.path.basename(f)
                         zf.write(f, arcname)
-                        queue.put(f"[ADDED] {arcname}")
             queue.put(":::DONE:::")
         except Exception:
             queue.put("[ERROR]\n" + traceback.format_exc())
