@@ -207,7 +207,7 @@ class ZipApp(Gtk.Window):
         if result == Gtk.ResponseType.OK:
             self.selected_zip_paths = dialog.get_filenames()
             names = [os.path.basename(p) for p in self.selected_zip_paths]
-            self.zip_selected_label.set_text(", ".join(names))
+            self.zip_selected_label.set_text(names[0]+"... ("+str(len(names))+"개"+")"  )
         elif result == Gtk.ResponseType.CANCEL:
             dialog.destroy()
         dialog.destroy()
@@ -230,7 +230,7 @@ class ZipApp(Gtk.Window):
         def force_load_folder_or_files(event):
             self.selected_compress_files = dialog.get_filenames()
             names = [os.path.basename(f) for f in self.selected_compress_files]
-            self.compress_label.set_text(", ".join(names))
+            self.compress_label.set_text(names[0]+"... ("+str(len(names))+"개"+")"  )
             dialog.destroy()
         custom_opener.connect("clicked", force_load_folder_or_files)
         dialog.add_filter(file_filter_allow_all)
@@ -326,12 +326,12 @@ if __name__ == "__main__":
             app.mode_combo.set_active(0)  
             app.selected_zip_paths = zip_files
             names = [os.path.basename(p) for p in zip_files]
-            app.zip_selected_label.set_text(", ".join(names))
+            app.zip_selected_label.set_text(names[0]+"... ("+str(len(names))+"개"+")"  )
         elif other_files:
             app.mode_combo.set_active(1) 
             app.selected_compress_files = other_files
             names = [os.path.basename(p) for p in other_files]
-            app.compress_label.set_text(", ".join(names))
+            app.compress_label.set_text(names[0]+"... ("+str(len(names))+"개"+")"  )
 
     Gtk.main()
 
