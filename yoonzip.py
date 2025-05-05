@@ -39,7 +39,6 @@ def extract_zip(zip_path, dest_dir, password, queue):
     try:
         zf, typ = try_open_zip(zip_path, password)
         queue.put("Zip file Opened")
-        queue.put("Reading Zip...")
         for info in zf.infolist():
             filename = info.filename
             try:
