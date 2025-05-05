@@ -52,17 +52,50 @@ def extract_zip(zip_path, dest_dir, password, queue):
 
 def compress_zip(file_list, zip_path, password, queue):
     try:
-        with pyzipper.AESZipFile(zip_path, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
-            if password:
-                zf.setpassword(password.encode("utf-8"))
+        with zipfile.ZipFile(zip_path, 'w', compression=pyzipper.ZIP_DEFLATED) as zf:
+            if len(password) != 0:
+                try:
+                    zf.setpassword(password.encode("utf-8"))
+                except:
+                    zf.setpassword(password.encode("cp437").decode("euc-kr"))
             for f in file_list:
-                arcname = os.path.basename(f)
-                zf.write(f, arcname)
-                queue.put(f"[ADDED] {arcname}")
+                if os.path.isdir(f):
+                    for root, dirs, files in os.walk(f):
+                        for file in files:
+                            full_path = os.path.join(root, file)
+                            rel_path  = os.path.relpath(full_path, f)
+                            zf.write(full_path, arcname=os.path.join(os.path.basename(f), rel_path))
+                            queue.put(f"[ADDED] {full_path}")
+                else:
+                    arcname = os.path.basename(f)
+                    zf.write(f, arcname)
+                    queue.put(f"[ADDED] {arcname}")
         queue.put(":::DONE:::")
-    except Exception:
-        queue.put("[ERROR]\n" + traceback.format_exc())
-        queue.put(":::DONE:::")
+        return
+    except:
+        try:
+            with pyzipper.AESZipFile(zip_path, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+                if password:
+                    try:
+                        zf.setpassword(password.encode("utf-8"))
+                    except:
+                        zf.setpassword(password.encode("cp437").decode("euc-kr"))
+                for f in file_list:
+                    if os.path.isdir(f):
+                        for root, dirs, files in os.walk(f):
+                            for file in files:
+                                full_path = os.path.join(root, file)
+                                rel_path  = os.path.relpath(full_path, f)
+                                zf.write(full_path, arcname=os.path.join(os.path.basename(f), rel_path))
+                                queue.put(f"[ADDED] {full_path}")
+                    else:
+                        arcname = os.path.basename(f)
+                        zf.write(f, arcname)
+                        queue.put(f"[ADDED] {arcname}")
+            queue.put(":::DONE:::")
+        except Exception:
+            queue.put("[ERROR]\n" + traceback.format_exc())
+            queue.put(":::DONE:::")
 
 class ZipApp(Gtk.Window):
     def __init__(self):
@@ -144,9 +177,9 @@ class ZipApp(Gtk.Window):
         self.selected_save_path = None
 
     def on_zip_select_clicked(self, button):
-        dialog = Gtk.FileChooserDialog("ZIP 파일 선택", self, Gtk.FileChooserAction.OPEN,
-                                       (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-                                        Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
+        dialog = Gtk.FileChooserDialog(title="ZIP 파일 선택", parent=self, action=Gtk.FileChooserAction.OPEN)
+        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+         Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
         dialog.set_select_multiple(True)
         zip_filter = Gtk.FileFilter()
         zip_filter.add_mime_type("application/zip")
@@ -159,29 +192,40 @@ class ZipApp(Gtk.Window):
         dialog.destroy()
 
     def on_folder_select_clicked(self, button):
-        dialog = Gtk.FileChooserDialog("압축 해제 폴더 선택", self, Gtk.FileChooserAction.SELECT_FOLDER,
-                                       (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-                                        Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
+        dialog = Gtk.FileChooserDialog(title="압축 해제 폴더 선택", parent=self, action=Gtk.FileChooserAction.SELECT_FOLDER)
+        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+         Gtk.STOCK_OPEN, Gtk.ResponseType.OK)
         if dialog.run() == Gtk.ResponseType.OK:
             self.selected_extract_folder = dialog.get_filename()
             self.folder_selected_label.set_text(self.selected_extract_folder)
         dialog.destroy()
 
     def on_file_select_clicked(self, button):
-        dialog = Gtk.FileChooserDialog("파일 선택", self, Gtk.FileChooserAction.OPEN,
-                                       (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-                                        Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
-        dialog.set_select_multiple(True)
-        if dialog.run() == Gtk.ResponseType.OK:
+        dialog = Gtk.FileChooserDialog(title="파일 선택", parent=self, action=Gtk.FileChooserAction.OPEN)
+        file_filter_allow_all = Gtk.FileFilter()
+        file_filter_allow_all.set_name("All Files")
+        file_filter_allow_all.add_pattern("*")
+        custom_opener = Gtk.Button(label="열기")
+        def force_load_folder_or_files(event):
             self.selected_compress_files = dialog.get_filenames()
             names = [os.path.basename(f) for f in self.selected_compress_files]
             self.compress_label.set_text(", ".join(names))
-        dialog.destroy()
+            dialog.destroy()
+        custom_opener.connect("clicked", force_load_folder_or_files)
+        dialog.add_filter(file_filter_allow_all)
+        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL)
+        box = dialog.get_action_area()
+        box.set_orientation(Gtk.Orientation.HORIZONTAL)
+        box.add(custom_opener)
+        dialog.show_all()
+        dialog.set_select_multiple(True)
+        if dialog.run() == Gtk.ResponseType.CANCEL:
+            dialog.destroy()
 
     def on_save_select_clicked(self, button):
-        dialog = Gtk.FileChooserDialog("ZIP 저장 위치", self, Gtk.FileChooserAction.SAVE,
-                                       (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-                                        Gtk.STOCK_SAVE, Gtk.ResponseType.OK))
+        dialog = Gtk.FileChooserDialog(title="ZIP 저장 위치", parent=self, action=Gtk.FileChooserAction.SAVE)
+        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+         Gtk.STOCK_SAVE, Gtk.ResponseType.OK)
         dialog.set_current_name("archive.zip")
         if dialog.run() == Gtk.ResponseType.OK:
             self.selected_save_path = dialog.get_filename()
