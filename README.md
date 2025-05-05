@@ -48,7 +48,7 @@ sudo bash ./install.sh
 
 ### Nuitka 바이너리로 설치 교체(선택사항)
 ```bash
-sudo bash ./replace_script_to_bin.py
+sudo bash ./replace_script_to_bin.sh
 ```
 이것을 이용하면 유지보수는 까다로워지지만 보다 빠른 동작을 보장합니다.
 
