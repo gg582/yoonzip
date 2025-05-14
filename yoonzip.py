@@ -48,7 +48,6 @@ def extract_zip(zip_path, dest_dir, password, queue):
             target = os.path.join(dest_dir, filename)
             if info.is_dir() or filename.endswith('/'):
                 os.makedirs(target, exist_ok=True)
-                queue.put(f"[DIR] {filename}")
             else:
                 os.makedirs(os.path.dirname(target), exist_ok=True)
                 with zf.open(info) as src, open(target, "wb") as dst:
