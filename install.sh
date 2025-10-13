@@ -1,9 +1,9 @@
 #!/bin/bash
 
-sudo cp yoonzip.desktop /usr/share/applications
-
-sudo cp yoonzip.py /usr/bin/
-
-sudo ln -s /usr/bin/yoonzip.py /usr/bin/yoonzip
-
-sudo update-mime-database /usr/share/mime
+pkexec cp yoonzip.desktop /usr/share/applications
+pkexec
+pkexec cp yoonzip.py /usr/bin/
+pkexec
+pkexec ln -s /usr/bin/yoonzip.py /usr/bin/yoonzip
+pkexec
+pkexec update-mime-database /usr/share/mime

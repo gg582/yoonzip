@@ -37,7 +37,7 @@ sudo dnf install python3-gobject gtk3
 ```
 #### PIP 필수 의존성
 ```bash
-pip3 install pyzipper
+pip3 install -r requirements.txt
 ```
 
 ```
@@ -48,7 +48,7 @@ sudo bash ./install.sh
 
 ### Nuitka 바이너리로 설치 교체(선택사항)
 ```bash
-sudo bash ./replace_script_to_bin.sh
+bash ./replace_script_to_bin.sh
 ```
 이것을 이용하면 유지보수는 까다로워지지만 보다 빠른 동작을 보장합니다.
 
