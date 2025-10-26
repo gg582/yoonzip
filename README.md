@@ -8,6 +8,12 @@
 - 파이썬 스크립트 형식으로 간단하게 제작되어 누구나 쉽게 코드를 수정할 수 있습니다.
 
 *이름을 재치있게 짓기 위해서 제 이름에다 Zip을 붙여 봤습니다.*
+## 준비: 가상환경 만드는법
+```
+python3 -m venv --system-site-packages venv
+source venv/bin/activate
+python3 yoonzip.py
+```
 ## 주요 기능
 
 ### GUI (그래픽 사용자 인터페이스) 지원:
